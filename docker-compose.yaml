@@ -81,7 +81,7 @@ services:
     image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/apigateway:latest
     environment:
       - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
-      - DagKnowsReqRouterHost=${DAGKNOWS_URL}
+      - DagKnowsReqRouterHost=http://req-router:8888
     restart: on-failure
 
   ansi-processing:
@@ -92,16 +92,15 @@ services:
     depends_on:
       - elasticsearch
     environment:
-      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
-      - FLASK_ENV=development
-      - SUPER_USER_ORG=${SUPER_USER_ORG}
-      - DAGKNOWS_URL=${DAGKNOWS_URL}
-      - PYTHONUNBUFFERED=1
       - COMMUNITY_URL=${COMMUNITY_URL}
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - DAGKNOWS_URL=${DAGKNOWS_URL}
+      - FLASK_ENV=development
       - PYTHONUNBUFFERED=1
+      - SUPER_USER_ORG=${SUPER_USER_ORG}
       - WAIT_COMMAND=[ $$(curl --write-out %{http_code} --silent --output /dev/null http://elasticsearch:9200/_cat/health?h=st) = 200 ]
-      - WAIT_SLEEP=10
       - WAIT_LOOPS=30
+      - WAIT_SLEEP=10
     command: ["sh", "src/wait-for-it.sh"]
 
   conv-sse:
@@ -165,6 +164,9 @@ services:
       - 443:443
       - 80:80
       - 24678:24678
+    depends_on:
+      - req-router
+      - dagknows-nuxt
 
   dagknows-nuxt:
     image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/dagknows_nuxt:latest
@@ -180,5 +182,3 @@ services:
       - COMMUNITY=${COMMUNITY}
       - DOWNLOAD_TASK_ID=${DOWNLOAD_TASK_ID}
       - ENFORCE_LOGIN=${ENFORCE_LOGIN}
-    depends_on:
-      - req-router
