@@ -1,0 +1,184 @@
+version: '3'
+services:
+  common_image:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/common_image:latest
+
+  postgres:
+    image: postgres:13.3
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRESQL_DB_PASSWORD}
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.2
+    environment:
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.enabled=false
+      - path.repo=/opt/elasticsearch/backup
+      - discovery.type=single-node
+      - cluster.name=docker-cluster
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS= -Xms2g -Xmx2g -Dlog4j2.formatMsgNoLookups=true"
+    volumes:
+      - ./esdata:/usr/share/elasticsearch/data
+      - ./elastic_backup:/opt/elasticsearch/backup
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+  req-router:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/req_router:latest
+    depends_on:
+      - postgres
+      - elasticsearch
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - DEFAULT_PAGE_SIZE=${DEFAULT_PAGE_SIZE}
+      - COMMUNITY_URL=${COMMUNITY_URL}
+      - COMPOSE_HTTP_TIMEOUT=300
+      - POSTGRESQL_DB_USER=${POSTGRESQL_DB_USER}
+      - POSTGRESQL_DB_PASSWORD=${POSTGRESQL_DB_PASSWORD}
+      - POSTGRESQL_DB_HOST=${POSTGRESQL_DB_HOST}
+      - POSTGRESQL_DB_PORT=${POSTGRESQL_DB_PORT}
+      - POSTGRESQL_DB_NAME=${POSTGRESQL_DB_NAME}
+      - MAIL_SERVER=${MAIL_SERVER}
+      - MAIL_USERNAME=${MAIL_USERNAME}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+      - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER}
+      - FLASK_ENV=development
+      - DAGKNOWS_URL=${DAGKNOWS_URL}
+      - APP_SECRET_KEY=${APP_SECRET_KEY}
+      - api_key=${api_key}
+      - SUPER_USER=${SUPER_USER}
+      - SUPER_PASSWORD=${SUPER_PASSWORD}
+      - SUPER_USER_FIRSTNAME=${SUPER_USER_FIRSTNAME}
+      - SUPER_USER_LASTNAME=${SUPER_USER_LASTNAME}
+      - SUPER_USER_ORG=${SUPER_USER_ORG}
+      - NO_SSL=${NO_SSL}
+      - SUPPORT_AD_AUTHENTICATION=${SUPPORT_AD_AUTHENTICATION}
+      - VERBOSE=${VERBOSE}
+      - PYTHONUNBUFFERED=1
+      - WAIT_COMMAND=[ $$(curl --write-out %{http_code} --silent --output /dev/null http://elasticsearch:9200/_cat/health?h=st) = 200 ]
+      - WAIT_SLEEP=10
+      - WAIT_LOOPS=30
+        # links:
+        # - postgres
+    command: ["sh", "src/wait-for-it.sh"]
+
+  conv-mgr:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/conv_mgr:latest
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - FLASK_ENV=development
+      - DAGKNOWS_URL=${DAGKNOWS_URL}
+      - GEVENT_SUPPORT=True
+      - PYTHONUNBUFFERED=1
+
+  apigateway:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/apigateway:latest
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - DagKnowsReqRouterHost=${DAGKNOWS_URL}
+    restart: on-failure
+
+  ansi-processing:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/ansi_processing:latest
+
+  settings:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/settings:latest
+    depends_on:
+      - elasticsearch
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - FLASK_ENV=development
+      - SUPER_USER_ORG=${SUPER_USER_ORG}
+      - DAGKNOWS_URL=${DAGKNOWS_URL}
+      - PYTHONUNBUFFERED=1
+      - COMMUNITY_URL=${COMMUNITY_URL}
+      - PYTHONUNBUFFERED=1
+      - WAIT_COMMAND=[ $$(curl --write-out %{http_code} --silent --output /dev/null http://elasticsearch:9200/_cat/health?h=st) = 200 ]
+      - WAIT_SLEEP=10
+      - WAIT_LOOPS=30
+    command: ["sh", "src/wait-for-it.sh"]
+
+  conv-sse:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/conv_sse:latest
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - WAIT_COMMAND=[ $$(curl --write-out %{http_code} --silent --output /dev/null http://elasticsearch:9200/_cat/health?h=st) = 200 ]
+      - WAIT_SLEEP=10
+      - WAIT_LOOPS=30
+      - POSTGRESQL_DB_USER=${POSTGRESQL_DB_USER}
+      - POSTGRESQL_DB_PASSWORD=${POSTGRESQL_DB_PASSWORD}
+      - POSTGRESQL_DB_HOST=${POSTGRESQL_DB_HOST}
+      - POSTGRESQL_DB_PORT=${POSTGRESQL_DB_PORT}
+      - POSTGRESQL_DB_NAME=${POSTGRESQL_DB_NAME}
+      - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER}
+      - FLASK_ENV=development
+      - APP_SECRET_KEY=${APP_SECRET_KEY}
+      - VERBOSE=${VERBOSE}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "src/conv_sse.py"]
+
+  proxy-sse:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/proxy_sse:latest
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - FLASK_ENV=development
+      - VERBOSE=${VERBOSE}
+      - PYTHONUNBUFFERED=1
+    command: ["python", "src/proxy_sse.py"]
+
+  taskservice:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/taskservice:latest
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - FLASK_ENV=development
+      - PYTHONUNBUFFERED=1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID}
+      - DAGKNOWS_FORCE_TOKEN=${DAGKNOWS_FORCE_TOKEN}
+      - POSTGRESQL_DB_USER=${POSTGRESQL_DB_USER}
+      - POSTGRESQL_DB_PASSWORD=${POSTGRESQL_DB_PASSWORD}
+      - POSTGRESQL_DB_HOST=${POSTGRESQL_DB_HOST}
+      - POSTGRESQL_DB_PORT=${POSTGRESQL_DB_PORT}
+      - POSTGRESQL_DB_NAME=${POSTGRESQL_DB_NAME}
+      - WAIT_COMMAND=[ $$(curl --write-out %{http_code} --silent --output /dev/null http://elasticsearch:9200/_cat/health?h=st) = 200 ]
+      - WAIT_SLEEP=10
+      - WAIT_LOOPS=30
+      - ALLOW_DK_USER_INFO_HEADER=true
+      - DEFAULT_ORG=${DEFAULT_ORG}
+      - SUPER_USER_ORG=${SUPER_USER_ORG}
+      - DISABLE_KNN=true
+    command: ["sh", "src/wait-for-it.sh"]
+
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./server.key:/root/ssl/server.key
+      - ./server.crt:/root/ssl/server.crt
+    ports:
+      - 443:443
+      - 80:80
+      - 24678:24678
+
+  dagknows-nuxt:
+    image: 188379622596.dkr.ecr.us-east-2.amazonaws.com/dagknows_nuxt:latest
+    command: npm run dev-debug -- -o
+    environment:
+      - DAGKNOWS_ELASTIC_URL=${DAGKNOWS_ELASTIC_URL}
+      - ALLOW_DK_USER_INFO_HEADER=true
+      - NODE_ENV=production
+      - DEFAULT_ORG=${DEFAULT_ORG}
+      - SUPER_USER_ORG=${SUPER_USER_ORG}
+      - NITRO_PRESET=${NITRO_PRESET}
+      - COMMUNITY_URL=${COMMUNITY_URL}
+      - COMMUNITY=${COMMUNITY}
+      - DOWNLOAD_TASK_ID=${DOWNLOAD_TASK_ID}
+      - ENFORCE_LOGIN=${ENFORCE_LOGIN}
+    depends_on:
+      - req-router
